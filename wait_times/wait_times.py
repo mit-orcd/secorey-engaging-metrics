@@ -2,15 +2,19 @@ import argparse
 import subprocess
 import pandas as pd
 import matplotlib.pyplot as plt
-from datetime import datetime
+from datetime import datetime, timedelta
+
+today = datetime.today().strftime('%Y-%m-%d')
+one_month_ago = (datetime.today() - timedelta(days=30)).strftime('%Y-%m-%d')
 
 parser = argparse.ArgumentParser(description='Analyze SLURM job wait times.')
-parser.add_argument('-s', '--start-time', required=True, help='Start date (YYYY-MM-DD)')
-parser.add_argument('-e', '--end-time', required=True, help='End date (YYYY-MM-DD)')
+parser.add_argument('-s', '--start-time', default=None, help='Start date (YYYY-MM-DD), defaults to 30 days ago')
+parser.add_argument('-e', '--end-time', default=None, help='End date (YYYY-MM-DD), defaults to today')
 args = parser.parse_args()
 
-START = args.start_time
-END = args.end_time
+use_defaults = args.start_time is None and args.end_time is None
+START = args.start_time if args.start_time is not None else one_month_ago
+END = args.end_time if args.end_time is not None else today
 PARTITION = 'mit_normal_gpu'
 OUTPUT_FILE = f'data/sacct_{START}_{END}.csv'
 
@@ -185,7 +189,7 @@ titles = {
     'large_h200': 'Large H200 Jobs (4 GPUs)',
 }
 
-def make_plot(df_group, group_name, title):
+def make_plot(df_group, group_name, title, print_stats=True):
     """Create and save a wait time plot for a job size group."""
     median_wt = df_group.groupby(['SubmitDate', 'Account'])['WaitTime_hours'].median().reset_index()
     median_wt.rename(columns={'WaitTime_hours': 'Median_WaitTime'}, inplace=True)
@@ -219,18 +223,65 @@ def make_plot(df_group, group_name, title):
     plt.savefig(out_file, dpi=300, bbox_inches='tight')
     print(f"Plot saved as '{out_file}'")
 
-    print(f"\nSummary statistics ({group_name}):")
-    for account in accounts_of_interest:
-        account_data = df_group[df_group['Account'] == account]
-        if not account_data.empty:
-            print(f"\n  {account}:")
-            print(f"    Total jobs: {len(account_data)}")
-            print(f"    Average wait time: {account_data['WaitTime_hours'].mean():.2f} hours")
-            print(f"    Median wait time: {account_data['WaitTime_hours'].median():.2f} hours")
-            print(f"    Max wait time: {account_data['WaitTime_hours'].max():.2f} hours")
+    if print_stats:
+        print(f"\nSummary statistics ({group_name}):")
+        for account in accounts_of_interest:
+            account_data = df_group[df_group['Account'] == account]
+            if not account_data.empty:
+                print(f"\n  {account}:")
+                print(f"    Total jobs: {len(account_data)}")
+                print(f"    Average wait time: {account_data['WaitTime_hours'].mean():.2f} hours")
+                print(f"    Median wait time: {account_data['WaitTime_hours'].median():.2f} hours")
+                print(f"    Max wait time: {account_data['WaitTime_hours'].max():.2f} hours")
 
     plt.show()
 
+
+def print_summary_table(df_filtered, groupings, accounts_of_interest, end_date):
+    """Print a summary statistics table broken down by group, account, and time window."""
+    end_dt = pd.Timestamp(end_date)
+    windows = {
+        'Past Day':   end_dt - pd.Timedelta(days=1),
+        'Past Week':  end_dt - pd.Timedelta(days=7),
+        'Past Month': end_dt - pd.Timedelta(days=30),
+    }
+
+    records = []
+    for group_name, mask in groupings.items():
+        df_group = df_filtered[mask].copy()
+        for account in accounts_of_interest:
+            df_acct = df_group[df_group['Account'] == account]
+            row = {'Group': group_name, 'Account': account}
+            for window_name, window_start in windows.items():
+                df_w = df_acct[df_acct['Submit'] >= window_start]
+                n = len(df_w)
+                if n > 0:
+                    row[f'{window_name}__Total Jobs'] = n
+                    row[f'{window_name}__Mean (h)']   = round(df_w['WaitTime_hours'].mean(), 2)
+                    row[f'{window_name}__Median (h)'] = round(df_w['WaitTime_hours'].median(), 2)
+                    row[f'{window_name}__Max (h)']    = round(df_w['WaitTime_hours'].max(), 2)
+                else:
+                    row[f'{window_name}__Total Jobs'] = 0
+                    row[f'{window_name}__Mean (h)']   = None
+                    row[f'{window_name}__Median (h)'] = None
+                    row[f'{window_name}__Max (h)']    = None
+            records.append(row)
+
+    table = pd.DataFrame(records).set_index(['Group', 'Account'])
+    tuples = [
+        (w, s)
+        for w in windows
+        for s in ['Total Jobs', 'Mean (h)', 'Median (h)', 'Max (h)']
+    ]
+    table.columns = pd.MultiIndex.from_tuples(tuples)
+
+    print("\nSummary Statistics\n")
+    print(table.to_string())
+
+
 for group_name, mask in groupings.items():
     df_group = df_filtered[mask].copy()
-    make_plot(df_group, group_name, titles[group_name])
+    make_plot(df_group, group_name, titles[group_name], print_stats=not use_defaults)
+
+if use_defaults:
+    print_summary_table(df_filtered, groupings, accounts_of_interest, END)

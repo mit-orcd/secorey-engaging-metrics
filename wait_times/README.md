@@ -11,20 +11,27 @@ Fetches SLURM job accounting data for the `mit_normal_gpu` partition and plots m
 ## Usage
 
 ```bash
-python wait_times.py -s YYYY-MM-DD -e YYYY-MM-DD
+python wait_times.py [-s YYYY-MM-DD] [-e YYYY-MM-DD]
 ```
 
-**Arguments:**
+Both arguments are optional:
 
-| Flag | Description |
-|------|-------------|
-| `-s`, `--start-time` | Start date for job query (inclusive) |
-| `-e`, `--end-time` | End date for job query (inclusive) |
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-s`, `--start-time` | Start date for job query (inclusive) | 30 days before today |
+| `-e`, `--end-time` | End date for job query (inclusive) | Today |
 
-**Example:**
+**Examples:**
 
 ```bash
+# Last 30 days (default — also prints summary statistics table)
+python wait_times.py
+
+# Custom range
 python wait_times.py -s 2026-03-01 -e 2026-03-10
+
+# From a specific start date through today
+python wait_times.py -s 2026-02-01
 ```
 
 ## What it does
@@ -37,7 +44,8 @@ python wait_times.py -s 2026-03-01 -e 2026-03-10
    - **small_h200**: 1 H200 GPU
    - **medium_h200**: 2 H200 GPUs
    - **large_h200**: 4 H200 GPUs
-6. For each group, generates a line plot of daily median and mean wait time per account, saved to `plots/wait_times_<group>.png`, and prints summary statistics to stdout.
+6. For each group, generates a line plot of daily median and mean wait time per account, saved to `plots/wait_times_<group>.png`.
+7. **When run with no arguments**, prints a summary statistics table instead of per-group stats. The table shows total jobs, mean, median, and max wait time for each (group, account) combination across three time windows: past day, past week, and past month.
 
 ## Output
 
@@ -45,3 +53,4 @@ python wait_times.py -s 2026-03-01 -e 2026-03-10
 - `plots/wait_times_small_h200.png`
 - `plots/wait_times_medium_h200.png`
 - `plots/wait_times_large_h200.png`
+- Summary statistics printed to stdout (format depends on arguments — see above)
